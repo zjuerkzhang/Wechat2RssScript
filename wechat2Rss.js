@@ -11,7 +11,8 @@ function main(){
     var timeWaitForClick = 3000;
     var longWait = 5000;
     var shortWait = 500;
-    var onlyNewMessage = true;
+    var onlyNewMessage = false;
+    var deleteSubscriberChat = false;
     var targetXmlFilePath = "/sdcard/Wechat2Rss/Wechat2Rss.xml";
 
     device.wakeUpIfNeeded();
@@ -53,24 +54,40 @@ function main(){
     }
 
 
-    goToSubscriberAccountSession();
+    var retGoToSub = goToSubscriberAccountSession();
+    if (!retGoToSub)
+    {
+        home();
+        return;
+    }
+    sleep(longWait); // 等待订阅公众号同步
     sleep(longWait);
     var lv = selector().className("ListView").findOnce();
     //console.log(lv);
     var lls = lv.children();
-    var articleTitles = [];
+    var articleTitles = {};
     for (var i = 0; i<lls.length; i++)
     {
         //console.log("公众号列表: i = " + String(i))
         var breakTextElems = lls[i].find(text("以下是更早消息"));
         var noNewElems = lls[i].find(text("已无更多订阅消息"));
-        if (breakTextElems.length > 0 || noNewElems.length > 0)
+        if (breakTextElems.length > 0 )
         {
-            console.log("发现'以下是更早消息/已无更多订阅消息'，停止搜索");
+            console.log("发现'以下是更早消息'，停止搜索");
             if (onlyNewMessage)
             {
                 break;
             }
+            else
+            {
+                continue;
+            }
+        }
+        if (noNewElems.length > 0)
+        {
+            console.log("发现'已无更多订阅消息'，停止搜索");
+            deleteSubscriberChat = true;
+            break;
         }
         var upName = "";
         var clickElems = lls[i].find(clickable());
@@ -92,7 +109,14 @@ function main(){
             if (!isUpHeaderElem && tvs.length > 0)
             {
                 console.log("公众号 [" + upName + "] 的文章: " + tvs[0].text());
-                articleTitles.push(tvs[0].text());
+                if (articleTitles[upName] == undefined)
+                {
+                    articleTitles[upName] = [tvs[0].text()]
+                }
+                else
+                {
+                    articleTitles[upName].push(tvs[0].text());
+                }
                 //clickElems[j].click();
                 //sleep(timeWaitForClick);
                 //back();
@@ -101,25 +125,35 @@ function main(){
 
     }
     console.log("---------------------");
-    for (var i = 0; i < articleTitles.length; i++)
+    for (var key in articleTitles)
     {
-        console.log(String(i+1) + ": " + articleTitles[i]);
+        console.log(" + 订阅号: " + key);
+        for (var i = 0; i < articleTitles[key].length; i++)
+        {
+            console.log( "  - " + String(i+1) + ": " + articleTitles[key][i]);
+        }
     }
     console.log("---------------------");
 
-    for (var i = 0; i < articleTitles.length; i++)
+    var titleLinkMap = [];
+    for (var key in articleTitles)
     {
-        var processStr = "--> 处理文章 [" + String(i+1) + "/" + String(articleTitles.length) + "]: ";
-        console.log(processStr +  "'" + articleTitles[i] + "'")
-        if (articleTitles[i].indexOf("余下") == 0 || articleTitles[i].indexOf("展开") == 0 )
+        for (var i = 0; i < articleTitles[key].length; i++)
         {
-            continue;
+            var processStr = "--> 处理文章 [" + String(i+1) + "/" + String(articleTitles[key].length) + "]: ";
+            console.log(processStr +  "'" + articleTitles[key][i] + "'")
+            if (articleTitles[key][i].indexOf("余下") == 0 || articleTitles[key][i].indexOf("展开") == 0 )
+            {
+                continue;
+            }
+            var link = getArticleLink(articleTitles[key][i]);
+            if (link != "")
+            {
+
+                titleLinkMap.push([articleTitles[key][i], link]);
+            }
         }
-        var link = getArticleLink(articleTitles[i]);
-        if (link != "")
-        {
-            titleLinkMap.push([articleTitles[i], link]);
-        }
+        var ret = clickByTextClickableElemsInSteps([key, "删除", "删除"], ["long", "", ""], ["hfq", "", ""]);
     }
 
     if (titleLinkMap.length > 0)
@@ -131,16 +165,43 @@ function main(){
 
     back();
     sleep(timeWaitForBack);
-    var ret = clickByTextClickableElemsInSteps(["订阅号消息", "删除该聊天", "删除"], ["long", "", ""]);
+    if (deleteSubscriberChat)
+    {
+        var ret = clickByTextClickableElemsInSteps(["订阅号消息", "删除该聊天", "删除"], ["long", "", ""], ["", "", ""]);
+    }
     home();
 
+    function findTextElemByTextAndId(textStr, idStr)
+    {
+        if (idStr == "")
+        {
+            var textElem = text(textStr).findOnce();
+            if (!textElem)
+            {
+                console.log("没有找到text元素 [" + texts[i] + "]");
+            }
+            return textElem;
+        }
+        else
+        {
+            var textElems = text(textStr).find();
+            for (var i = 0; i < textElems.length; i++)
+            {
+                if (textElems[i].id().indexOf(idStr) >= 0)
+                {
+                    return textElems[i];
+                }
+            }
+            return null;
+        }
+    }
 
 
-    function clickByTextClickableElemsInSteps(texts, clickTypes)
+    function clickByTextClickableElemsInSteps(texts, clickTypes, filterCondition)
     {
         for (var i = 0; i < texts.length; i++)
         {
-            var textElem = text(texts[i]).findOnce();
+            var textElem = findTextElemByTextAndId(texts[i], filterCondition[i]);
             if (!textElem)
             {
                 console.log("没有找到text元素 [" + texts[i] + "]");
@@ -228,8 +289,17 @@ function main(){
         }
         threeDotsImg.click();
         sleep(timeWaitForClick);
-        text("复制链接").waitFor();
+        //text("复制链接").waitFor();
         var copyText = text("复制链接").findOnce();
+        if (!copyText)
+        {
+            console.log("无法找到三点菜单中的复制链接按钮，文章标题: " + articleTitle);
+            back();
+            sleep(timeWaitForBack);
+            back();
+            sleep(timeWaitForBack);
+            return "";
+        }
         var copyClickElem = getTheToppestClickableElem(copyText);
         copyClickElem.click();
         link = getClip();
@@ -296,10 +366,15 @@ function main(){
     function goToSubscriberAccountSession()
     {
         var textElem = text("订阅号消息").findOnce();
+        if (!textElem)
+        {
+            return false;
+        }
         var a = getTheToppestClickableElem(textElem);
         //console.log(a);
         a.click();
         sleep(longWait); // wait for subscriber page update
+        return true;
     }
 
     function getTheToppestClickableElem(startElem)
